@@ -1,0 +1,3 @@
+[workspace]
+members = [ "my-lang-llvm","my-lang-parser"]
+resolver = "2"
