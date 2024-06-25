@@ -1,10 +1,11 @@
 use std::fmt::Display;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Value {
     Number(f64),
     String(String),
     Bool(bool),
+    Void,
 }
 
 impl Display for Value {
@@ -13,6 +14,7 @@ impl Display for Value {
             Value::Number(number) => write!(f, "{}", number),
             Value::String(string) => write!(f, "{}", string),
             Value::Bool(bool) => write!(f, "{}", bool),
+            Value::Void => write!(f, "void"),
         }
     }
 }

@@ -1,4 +1,12 @@
-expr = assignment;
+
+statement = expr_stmt | let_stmt | for_stmt | while_stmt | return_stmt | print_stmt;
+expr_stmt = expression ";";
+let_stmt = "let" IDENT "=" expression ";";
+print_stmt = "print" expression ";";
+
+expr = block_expr | num_expr;
+block_expr = "{" statement* "}";
+num_expr = assignment;
 assignment = logical_or "=" assignment | logical_or;
 logical_or = logical_and ("||" logical_and)*;
 logical_and = equality ("&&" equality)*;

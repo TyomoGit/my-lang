@@ -1,10 +1,11 @@
-use std::fmt::Display;
+use std::{borrow::Borrow, fmt::Display};
+
+use crate::error::Position;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
     kind: TokenKind,
-    line: usize,
-    column: usize,
+    position: Position,
     lexeme: String,
 }
 
@@ -15,20 +16,20 @@ impl Display for Token {
 }
 
 impl Token {
-    pub fn new(kind: TokenKind, line: usize, column: usize, lexeme: String) -> Self {
-        Self { kind, line, column, lexeme }
+    pub fn new(kind: TokenKind, position: Position, lexeme: String) -> Self {
+        Self {
+            kind,
+            position,
+            lexeme,
+        }
     }
 
     pub fn kind(&self) -> &TokenKind {
         &self.kind
     }
 
-    pub fn line(&self) -> usize {
-        self.line
-    }
-
-    pub fn column(&self) -> usize {
-        self.column
+    pub fn position(&self) -> Position {
+        self.position
     }
 }
 
@@ -41,8 +42,6 @@ pub enum TokenKind {
     RightParen,
     LeftBracket,
     RightBracket,
-    True,
-    False,
     Comma,
     Dot,
     Colon,
@@ -72,11 +71,64 @@ pub enum TokenKind {
     Eof,
 }
 
+pub fn str_token_kind_list<I: Borrow<TokenKind>>(list: impl Iterator<Item = I>) -> String {
+    list
+        .map(|kind| kind.borrow().to_string())
+        .collect::<Vec<String>>()
+        .join(", ")
+}
+
+impl Display for TokenKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let string = match self {
+            TokenKind::Comment => "//",
+            TokenKind::LeftBrace => "{",
+            TokenKind::RightBrace => "}",
+            TokenKind::LeftParen => "(",
+            TokenKind::RightParen => ")",
+            TokenKind::LeftBracket => "[",
+            TokenKind::RightBracket => "]",
+            TokenKind::Comma => ",",
+            TokenKind::Dot => ".",
+            TokenKind::Colon => ":",
+            TokenKind::Semicolon => ";",
+            TokenKind::Plus => "+",
+            TokenKind::Minus => "-",
+            TokenKind::Star => "*",
+            TokenKind::Slash => "/",
+            TokenKind::Equal => "=",
+            TokenKind::EqualEqual => "==",
+            TokenKind::Bang => "!",
+            TokenKind::BangEqual => "!=",
+            TokenKind::Less => "<",
+            TokenKind::LessEqual => "<=",
+            TokenKind::Greater => ">",
+            TokenKind::GreaterEqual => ">=",
+            TokenKind::And => "&",
+            TokenKind::Or => "|",
+            TokenKind::AndAnd => "&&",
+            TokenKind::OrOr => "||",
+            TokenKind::Ident(_) => "Identifier",
+            TokenKind::String(_) => "String",
+            TokenKind::Number(_) => "Number",
+            TokenKind::Keyword(keyword) => {
+                return write!(f, "{}", keyword);
+            }
+            TokenKind::Range => "..",
+            TokenKind::RangeInclusive => "..=",
+            TokenKind::Eof => "EOF",
+        };
+
+        write!(f, "{}", string)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Keyword {
     True,
     False,
     Let,
+    Print,
     Var,
     If,
     Else,
@@ -88,4 +140,27 @@ pub enum Keyword {
     Break,
     Continue,
     Class,
+}
+
+impl Display for Keyword {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let string = match self {
+            Keyword::True => "true",
+            Keyword::False => "false",
+            Keyword::Let => "let",
+            Keyword::Print => "print",
+            Keyword::Var => "var",
+            Keyword::If => "if",
+            Keyword::Else => "else",
+            Keyword::Fn => "fn",
+            Keyword::Return => "return",
+            Keyword::While => "while",
+            Keyword::For => "for",
+            Keyword::In => "in",
+            Keyword::Break => "break",
+            Keyword::Continue => "continue",
+            Keyword::Class => "class",
+        };
+        write!(f, "{}", string)
+    }
 }

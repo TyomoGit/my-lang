@@ -1,5 +1,27 @@
+use crate::token::Token;
+
+pub type Statements = Vec<Statement>;
+
+/// 宣言
+///
+/// 値を返さない。
+pub enum Declaration {}
+
+/// 文
+///
+/// 文はVoid型の唯一の値voidを返す
+#[derive(Debug, Clone, PartialEq)]
+pub enum Statement {
+    Empty,
+    Expr(Expr),
+    Let(Token, Expr),
+    Print(Expr),
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Expr {
+    Block(Statements),
+
     Number(f64),
     String(String),
     Ident(String),
