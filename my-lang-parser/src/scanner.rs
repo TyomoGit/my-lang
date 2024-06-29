@@ -1,7 +1,7 @@
 use std::fmt::Display;
 
 use crate::{
-    error::{Error, Position},
+    error::{Error, ErrorKind, Position},
     token::{Keyword, Token, TokenKind},
 };
 
@@ -22,6 +22,10 @@ impl std::error::Error for ScanError {}
 impl Error for ScanError {
     fn position(&self) -> crate::error::Position {
         self.position
+    }
+
+    fn kind() -> crate::error::ErrorKind {
+        ErrorKind::ScanError
     }
 }
 
@@ -199,7 +203,7 @@ impl Scanner {
             "break" => TokenKind::Keyword(Keyword::Break),
             "print" => TokenKind::Keyword(Keyword::Print),
             "continue" => TokenKind::Keyword(Keyword::Continue),
-            
+
             _ => TokenKind::Ident(ident),
         };
 

@@ -1,7 +1,17 @@
 use std::{collections::BTreeMap, fmt::Write, path::Path, str::Lines};
 
+#[derive(Debug, Clone)]
+pub enum ErrorKind {
+    ScanError,
+    ParseError,
+    RunTimeError,
+}
+
 pub trait Error: std::error::Error + Send + Sync + 'static {
     fn position(&self) -> Position;
+    fn kind() -> ErrorKind
+    where
+        Self: Sized;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,16 +26,17 @@ impl Position {
     }
 }
 
-pub fn fmt_errors<T: Error>(source_lines: Lines, errors: &Vec<T>, file_path: Option<&Path>) -> String {
+pub fn fmt_errors<T: Error>(
+    source_lines: Lines,
+    errors: &Vec<T>,
+    file_path: Option<&Path>,
+) -> String {
     let mut result = String::new();
     let mut line_error_map: BTreeMap<usize, Vec<&T>> = BTreeMap::new();
 
     for error in errors {
         let Position { row, column: _ } = error.position();
-        line_error_map
-            .entry(row)
-            .or_default()
-            .push(error);
+        line_error_map.entry(row).or_default().push(error);
     }
 
     for (row, errors) in line_error_map {

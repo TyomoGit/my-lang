@@ -1,45 +1,151 @@
-use crate::token::Token;
+use crate::{error::Position, token::Token};
 
-pub type Statements = Vec<Statement>;
+pub type Statements = Vec<StmtKind>;
 
 /// 宣言
 ///
 /// 値を返さない。
-pub enum Declaration {}
+#[derive(Debug, Clone, PartialEq)]
+pub struct Decl {
+    pub(crate) kind: DeclKind,
+    pub(crate) position: Position,
+}
+
+impl Decl {
+    pub fn new(kind: DeclKind, position: Position) -> Self {
+        Self { kind, position }
+    }
+
+    pub fn kind(&self) -> &DeclKind {
+        &self.kind
+    }
+
+    pub fn position(&self) -> Position {
+        self.position
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum DeclKind {
+    /// 文
+    Stmt(Stmt),
+    /// 変数定義
+    Let(Ident, Stmt),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Stmt {
+    kind: Box<StmtKind>,
+    position: Position,
+}
+
+impl Stmt {
+    pub fn new(kind: impl Into<Box<StmtKind>>, position: Position) -> Self {
+        Self {
+            kind: kind.into(),
+            position,
+        }
+    }
+
+    pub fn kind(&self) -> &StmtKind {
+        &self.kind
+    }
+
+    pub fn position(&self) -> Position {
+        self.position
+    }
+}
 
 /// 文
 ///
 /// 文はVoid型の唯一の値voidを返す
 #[derive(Debug, Clone, PartialEq)]
-pub enum Statement {
+pub enum StmtKind {
+    /// 空の文
     Empty,
+    /// 式
     Expr(Expr),
-    Let(Token, Expr),
-    Print(Expr),
+    /// セミコロン付きの式
+    SemiExpr(Expr),
+}
+
+impl StmtKind {
+    pub fn includes_semi(&self) -> bool {
+        matches!(self, StmtKind::SemiExpr(_))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Expr {
-    Block(Statements),
+pub struct Expr {
+    pub(crate) kind: Box<ExprKind>,
+    pub(crate) position: Position,
+}
+
+impl Expr {
+    pub fn new(kind: impl Into<Box<ExprKind>>, position: Position) -> Self {
+        Self {
+            kind: kind.into(),
+            position,
+        }
+    }
+
+    pub fn kind(&self) -> &ExprKind {
+        &self.kind
+    }
+
+    pub fn position(&self) -> Position {
+        self.position
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExprKind {
+    /// print
+    Print(Expr),
+
+    Block {
+        /// ブロック内の文
+        decls: Vec<Decl>,
+        /// ブロックの最後の式
+        return_expr: Option<Expr>,
+    },
 
     Number(f64),
     String(String),
-    Ident(String),
+    Ident(Ident),
     Bool(bool),
 
-    Minus(Box<Expr>),
+    Minus(Expr),
 
-    Assign(Box<Expr>, Box<Expr>),
-    Add(Box<Expr>, Box<Expr>),
-    Sub(Box<Expr>, Box<Expr>),
-    Mul(Box<Expr>, Box<Expr>),
-    Div(Box<Expr>, Box<Expr>),
-    Eq(Box<Expr>, Box<Expr>),
-    Ne(Box<Expr>, Box<Expr>),
-    Gt(Box<Expr>, Box<Expr>),
-    Ge(Box<Expr>, Box<Expr>),
-    Lt(Box<Expr>, Box<Expr>),
-    Le(Box<Expr>, Box<Expr>),
-    And(Box<Expr>, Box<Expr>),
-    Or(Box<Expr>, Box<Expr>),
+    Assign(Expr, Expr),
+    Add(Expr, Expr),
+    Sub(Expr, Expr),
+    Mul(Expr, Expr),
+    Div(Expr, Expr),
+    Eq(Expr, Expr),
+    Ne(Expr, Expr),
+    Gt(Expr, Expr),
+    Ge(Expr, Expr),
+    Lt(Expr, Expr),
+    Le(Expr, Expr),
+    And(Expr, Expr),
+    Or(Expr, Expr),
+}
+
+impl ExprKind {
+    pub fn maybe_no_semicolon(&self) -> bool {
+        matches!(self, ExprKind::Block { .. })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Ident {
+    pub name: String,
+    pub position: Position,
+}
+
+impl Ident {
+    pub fn new(name: String, position: Position) -> Self {
+        Self { name, position }
+    }
 }

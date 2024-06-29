@@ -28,6 +28,10 @@ impl Token {
         &self.kind
     }
 
+    pub fn into_kind(self) -> TokenKind {
+        self.kind
+    }
+
     pub fn position(&self) -> Position {
         self.position
     }
@@ -72,8 +76,7 @@ pub enum TokenKind {
 }
 
 pub fn str_token_kind_list<I: Borrow<TokenKind>>(list: impl Iterator<Item = I>) -> String {
-    list
-        .map(|kind| kind.borrow().to_string())
+    list.map(|kind| kind.borrow().to_string())
         .collect::<Vec<String>>()
         .join(", ")
 }

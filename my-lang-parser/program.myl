@@ -1,2 +1,6 @@
-let a = 19;
-print(a * 2);
+let a = print("こちらはprint式です");
+
+print(a);
+
+
+

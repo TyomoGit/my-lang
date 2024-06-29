@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    ast::{Expr, Statement},
+    ast::{Decl, DeclKind, Expr, ExprKind, Stmt, StmtKind},
     value::Value,
 };
 
@@ -31,6 +31,10 @@ impl<'a> Environment<'a> {
         }
     }
 
+    pub fn into_parent(self) -> Option<&'a mut Environment<'a>> {
+        self.parent
+    }
+
     pub fn get(&self, name: &str) -> Option<&Value> {
         if let Some(value) = self.variables.get(name) {
             Some(value)
@@ -54,44 +58,51 @@ impl<'a> Default for Environment<'a> {
 
 impl<'a> Evaluator<'a> {
     pub fn new() -> Self {
-        Self { environment: Environment::new() }
-    }
-
-    pub fn evaluate(&mut self, program: &Vec<Statement>) {
-        for stmt in program {
-            self.eval_stmt(stmt);
+        Self {
+            environment: Environment::new(),
         }
     }
 
-    fn eval_stmt(&mut self, stmt: &Statement) -> Value {
-        match stmt {
-            Statement::Empty => Value::Void,
-            Statement::Expr(expr) => {
+    pub fn evaluate(&mut self, program: &Vec<Decl>) {
+        for decl in program {
+            self.eval_decl(decl);
+        }
+    }
+
+    fn eval_decl(&mut self, decl: &Decl) {
+        match decl.kind() {
+            DeclKind::Stmt(stmt) => {
+                self.eval_stmt(stmt);
+            }
+            DeclKind::Let(ident, expr) => {
+                let value = self.eval_stmt(expr);
+                self.environment.define(ident.name.clone(), value.clone());
+            }
+        }
+    }
+
+    fn eval_stmt(&mut self, stmt: &Stmt) -> Value {
+        match stmt.kind() {
+            StmtKind::Empty => Value::Void,
+            StmtKind::Expr(expr) => {
+                unreachable!("unreachable expr: {:?} in eval_stmt", expr)
+            }
+            StmtKind::SemiExpr(expr) => {
                 let _ = self.eval_expr(expr);
-                Value::Void
-            }
-            Statement::Let(name, expr) => {
-                let value = self.eval_expr(expr);
-                self.environment.define(name.to_string(), value.clone());
-                Value::Void
-            }
-            Statement::Print(expr) => {
-                let value = self.eval_expr(expr);
-                println!("{}", value);
                 Value::Void
             }
         }
     }
 
     #[allow(clippy::only_used_in_recursion)]
-    fn eval_expr(&self, expr: &Expr) -> Value {
+    fn eval_expr(&mut self, expr: &Expr) -> Value {
         macro_rules! impl_binary_op {
             ($lhs:ident, $rhs:ident, $op:tt, $type:tt) => {
                 {
-                    let Value::$type(lhs) = self.eval_expr($lhs.as_ref()) else {
+                    let Value::$type(lhs) = self.eval_expr(&$lhs) else {
                         panic!(concat!("expected ", stringify!($type), ", got: {:?}"), $lhs)
                     };
-                    let Value::$type(rhs) = self.eval_expr($rhs.as_ref()) else {
+                    let Value::$type(rhs) = self.eval_expr(&$rhs) else {
                         panic!(concat!("expected ", stringify!($type), ", got: {:?}"), $rhs)
                     };
                     Value::$type(lhs $op rhs)
@@ -99,59 +110,75 @@ impl<'a> Evaluator<'a> {
             };
         }
 
-        match expr {
-            Expr::Number(number) => Value::Number(*number),
-            Expr::String(string) => Value::String(string.to_string()),
-            Expr::Block(statements) => unimplemented!(),
-            Expr::Ident(ident) => {
+        match expr.kind() {
+            ExprKind::Number(number) => Value::Number(*number),
+            ExprKind::String(string) => Value::String(string.to_string()),
+            ExprKind::Block { decls, return_expr } => {
+                for decl in decls {
+                    self.eval_decl(decl);
+                }
+                if let Some(return_expr) = return_expr {
+                    self.eval_expr(&return_expr)
+                } else {
+                    Value::Void
+                }
+            }
+            ExprKind::Ident(ident) => {
+                let ident = &ident.name;
                 if let Some(value) = self.environment.get(ident) {
                     value.clone()
                 } else {
                     panic!("undefined variable: {}", ident)
                 }
             }
-            Expr::Bool(bool) => Value::Bool(*bool),
-            Expr::Minus(expr) => {
-                let Value::Number(number) = self.eval_expr(expr.as_ref()) else {
+            ExprKind::Bool(bool) => Value::Bool(*bool),
+            ExprKind::Minus(expr) => {
+                let Value::Number(number) = self.eval_expr(&expr) else {
                     panic!("expected number, got: {:?}", expr)
                 };
                 Value::Number(-number)
             }
-            Expr::Assign(_left, _right) => unimplemented!(),
-            Expr::Add(lhs, rhs) => match self.eval_expr(lhs.as_ref()) {
+            ExprKind::Assign(_left, _right) => unimplemented!(),
+            ExprKind::Add(lhs, rhs) => match self.eval_expr(&lhs) {
                 Value::Number(lhs) => {
-                    let Value::Number(rhs) = self.eval_expr(rhs.as_ref()) else {
+                    let Value::Number(rhs) = self.eval_expr(rhs) else {
                         panic!("expected number, got: {:?}", rhs)
                     };
                     Value::Number(lhs + rhs)
                 }
                 Value::String(lhs) => {
-                    let Value::String(rhs) = self.eval_expr(rhs.as_ref()) else {
+                    let Value::String(rhs) = self.eval_expr(rhs) else {
                         panic!("expected string, got: {:?}", rhs)
                     };
                     Value::String(lhs + &rhs)
                 }
                 _ => panic!("expected number or string, got: {:?}", lhs),
             },
-            Expr::Sub(lhs, rhs) => {
-                let Value::Number(lhs) = self.eval_expr(lhs.as_ref()) else {
+            ExprKind::Sub(lhs, rhs) => {
+                let Value::Number(lhs) = self.eval_expr(lhs) else {
                     panic!("expected number, got: {:?}", lhs)
                 };
-                let Value::Number(rhs) = self.eval_expr(rhs.as_ref()) else {
+                let Value::Number(rhs) = self.eval_expr(rhs) else {
                     panic!("expected number, got: {:?}", rhs)
                 };
                 Value::Number(lhs - rhs)
             }
-            Expr::Mul(lhs, rhs) => impl_binary_op!(lhs, rhs, *, Number),
-            Expr::Div(lhs, rhs) => impl_binary_op!(lhs, rhs, /, Number),
-            Expr::Eq(lhs, rhs) => impl_binary_op!(lhs, rhs, ==, Bool),
-            Expr::Ne(lhs, rhs) => impl_binary_op!(lhs, rhs, !=, Bool),
-            Expr::Gt(lhs, rhs) => impl_binary_op!(lhs, rhs, >, Bool),
-            Expr::Ge(lhs, rhs) => impl_binary_op!(lhs, rhs, >=, Bool),
-            Expr::Lt(lhs, rhs) => impl_binary_op!(lhs, rhs, <, Bool),
-            Expr::Le(lhs, rhs) => impl_binary_op!(lhs, rhs, <=, Bool),
-            Expr::And(lhs, rhs) => impl_binary_op!(lhs, rhs, &&, Bool),
-            Expr::Or(lhs, rhs) => impl_binary_op!(lhs, rhs, ||, Bool),
+            ExprKind::Mul(lhs, rhs) => impl_binary_op!(lhs, rhs, *, Number),
+            ExprKind::Div(lhs, rhs) => impl_binary_op!(lhs, rhs, /, Number),
+            ExprKind::Eq(lhs, rhs) => impl_binary_op!(lhs, rhs, ==, Bool),
+            ExprKind::Ne(lhs, rhs) => impl_binary_op!(lhs, rhs, !=, Bool),
+            ExprKind::Gt(lhs, rhs) => impl_binary_op!(lhs, rhs, >, Bool),
+            ExprKind::Ge(lhs, rhs) => impl_binary_op!(lhs, rhs, >=, Bool),
+            ExprKind::Lt(lhs, rhs) => impl_binary_op!(lhs, rhs, <, Bool),
+            ExprKind::Le(lhs, rhs) => impl_binary_op!(lhs, rhs, <=, Bool),
+            ExprKind::And(lhs, rhs) => impl_binary_op!(lhs, rhs, &&, Bool),
+            ExprKind::Or(lhs, rhs) => impl_binary_op!(lhs, rhs, ||, Bool),
+
+            ExprKind::Print(expr) => {
+                let value = self.eval_expr(expr);
+                println!("{}", value);
+                Value::Void
+            }
         }
     }
 }

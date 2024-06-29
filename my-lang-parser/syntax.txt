@@ -4,8 +4,7 @@ expr_stmt = expression ";";
 let_stmt = "let" IDENT "=" expression ";";
 print_stmt = "print" expression ";";
 
-expr = block_expr | num_expr;
-block_expr = "{" statement* "}";
+expr = num_expr;
 num_expr = assignment;
 assignment = logical_or "=" assignment | logical_or;
 logical_or = logical_and ("||" logical_and)*;
@@ -14,5 +13,7 @@ equality = comparison (("==" | "!=") comparison)*;
 comparison = term ((">" | "<" | ">=" | "<=") term)*;
 term = factor (("+" | "-") factor)*;
 factor = unary (("*" | "/") unary)*;
-unary = ("!" | "-") unary | primary;
+unary = ("!" | "-") unary | block;
+block = block_expr | primary;
+block_expr = "{" statement* expr? "}";
 primary = NUMBER | STRING | "true" | "false" | "(" expression ")" | IDENT;
