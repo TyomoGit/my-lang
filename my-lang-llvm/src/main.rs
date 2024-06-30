@@ -5,7 +5,7 @@ use my_lang_parser::{parser::Parser, scanner::Scanner};
 mod compiler;
 
 fn main() {
-    let source = "1 + 2 + 3 + 4";
+    let source = "(1 + 2) * (3 + 4)";
     let mut scanner = Scanner::new(source.chars().collect());
     let tokens = scanner.scan_tokens().unwrap();
     let mut parser = Parser::new(tokens);

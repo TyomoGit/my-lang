@@ -2,6 +2,8 @@
 name = "my-lang-llvm"
 version = "0.1.0"
 edition = "2021"
+build = "build.rs"
+links = "stdlib"
 
 [dependencies]
 inkwell = { version = "0.4.0", features = ["llvm17-0"] }

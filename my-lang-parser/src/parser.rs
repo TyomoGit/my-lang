@@ -1,12 +1,10 @@
 use std::fmt::Display;
 
 use crate::{
-    ast::{Decl, DeclKind, Expr, ExprKind, Ident, Stmt, StmtKind},
+    ast::{Block, Decl, DeclKind, Expr, ExprKind, Ident, Stmt, StmtKind},
     error::{Error, ErrorKind, Position},
     token::{str_token_kind_list, Keyword, Token, TokenKind},
 };
-
-type ParseResult<T> = std::result::Result<T, ParseError>;
 
 #[derive(Debug, Clone)]
 pub struct ParseError {
@@ -39,7 +37,7 @@ impl Error for ParseError {
     }
 
     fn kind() -> crate::error::ErrorKind {
-        ErrorKind::ParseError
+        ErrorKind::Parse
     }
 }
 
@@ -77,6 +75,7 @@ macro_rules! matches_token {
     };
 }
 
+// MARK: Parser
 impl Parser {
     pub fn new(tokens: Vec<Token>) -> Self {
         Self {
@@ -153,55 +152,22 @@ impl Parser {
         }
     }
 
+    // MARK: Declaration
+
+    /// parse declaration
     fn parse_declaration(&mut self) -> Result<Decl, Vec<ParseError>> {
         let token = self.advance();
         let position = token.position();
 
         let decl = match token.kind() {
-            TokenKind::Keyword(Keyword::Let) => {
-                self.let_decl()?
-            }
+            TokenKind::Keyword(Keyword::Let) => self.let_decl()?,
             _ => {
                 self.back();
-                Decl::new(DeclKind::Stmt(self.parse_statement()?), position)
+                Decl::new(DeclKind::Stmt(self.parse_statement(true)?), position)
             }
         };
 
         Ok(decl)
-    }
-
-    fn parse_statement(&mut self) -> Result<Stmt, Vec<ParseError>> {
-        let token = self.advance();
-        let (stmt, semi_check_required) = match token.kind() {
-            TokenKind::Semicolon => (Stmt::new(StmtKind::Empty, token.position()), false),
-            _ => {
-                self.back();
-                let expr = self.parse_expr()?;
-                let pos = expr.position();
-                let expr_stmt = if matches!(
-                    self.peek().map(|token| token.kind()),
-                    Some(TokenKind::Semicolon)
-                ) {
-                    self.advance();
-                    Stmt::new(StmtKind::SemiExpr(expr), pos)
-                } else {
-                    Stmt::new(StmtKind::Expr(expr), pos)
-                };
-
-                (expr_stmt, false)
-            }
-        };
-
-        if semi_check_required {
-            let _semicolon = self.consume_token(TokenKind::Semicolon).ok_or_else(|| {
-                vec![ParseError::new(
-                    ParseErrorKind::UnexpectedToken { token, expected: vec![TokenKind::Semicolon] },
-                    self.previous().unwrap().position(),
-                )]
-            })?;
-        }
-
-        Ok(stmt)
     }
 
     fn let_decl(&mut self) -> Result<Decl, Vec<ParseError>> {
@@ -224,26 +190,61 @@ impl Parser {
                 self.peek().unwrap().position(),
             )]
         })?;
-        let expr = self.parse_statement()?;
-        if !expr.kind().includes_semi() {
+        let expr = self.parse_statement(false)?;
+        let _semicolon = self.consume_token(TokenKind::Semicolon).ok_or_else(|| {
+            vec![ParseError::new(
+                ParseErrorKind::UnexpectedEof,
+                self.peek().unwrap().position(),
+            )]
+        })?;
+
+        Ok(Decl::new(
+            DeclKind::Let(Ident::new(ident, position), expr),
+            position,
+        ))
+    }
+
+    // MARK: Statement
+
+    fn parse_statement(&mut self, can_put_semi: bool) -> Result<Stmt, Vec<ParseError>> {
+        let token = self.advance();
+        let (stmt, semi_check_required) = match token.kind() {
+            TokenKind::Semicolon => (Stmt::new(StmtKind::Empty, token.position()), false),
+            _ => {
+                self.back();
+                let expr = self.parse_expr()?;
+                let pos = expr.position();
+                let expr_stmt = if matches!(
+                    self.peek().map(|token| token.kind()),
+                    Some(TokenKind::Semicolon)
+                ) && can_put_semi
+                {
+                    self.advance();
+                    Stmt::new(StmtKind::SemiExpr(expr), pos)
+                } else {
+                    Stmt::new(StmtKind::Expr(expr), pos)
+                };
+
+                (expr_stmt, false)
+            }
+        };
+
+        if semi_check_required && can_put_semi {
             let _semicolon = self.consume_token(TokenKind::Semicolon).ok_or_else(|| {
                 vec![ParseError::new(
-                    ParseErrorKind::UnexpectedEof,
-                    self.peek().unwrap().position(),
+                    ParseErrorKind::UnexpectedToken {
+                        token,
+                        expected: vec![TokenKind::Semicolon],
+                    },
+                    self.previous().unwrap().position(),
                 )]
             })?;
         }
 
-        Ok(Decl::new(DeclKind::Let(Ident::new(ident, position), expr), position))
+        Ok(stmt)
     }
 
-    fn print_expr(&mut self) -> Result<Expr, Vec<ParseError>> {
-        let position = self.previous().unwrap().position();
-
-        let expr = self.parse_expr()?;
-
-        Ok(Expr::new(ExprKind::Print(expr), position))
-    }
+    // MARK: Expression
 
     fn parse_expr(&mut self) -> Result<Expr, Vec<ParseError>> {
         // if matches_token!(self.peek(), TokenKind::LeftBrace) {
@@ -259,21 +260,20 @@ impl Parser {
     fn block_expr(&mut self) -> Result<Expr, Vec<ParseError>> {
         let position = self.previous().unwrap().position();
 
+        let block = self.parse_block()?;
+        Ok(Expr::new(ExprKind::Block(block), position))
+    }
+
+    fn parse_block(&mut self) -> Result<Block, Vec<ParseError>> {
         // empty block
-        if let Some(right_brace) = self.consume_token(TokenKind::RightBrace) {
+        if let Some(_right_brace) = self.consume_token(TokenKind::RightBrace) {
             self.advance();
-            let ret = Expr::new(
-                ExprKind::Block {
-                    decls: vec![],
-                    return_expr: None,
-                },
-                right_brace.position(),
-            );
+            let ret = Block::new(Vec::new(), None);
 
             return Ok(ret);
         }
 
-        let mut statements = self.parse_until(Some(&TokenKind::RightBrace))?;
+        let mut decls = self.parse_until(Some(&TokenKind::RightBrace))?;
         let _right_brace = self.consume_token(TokenKind::RightBrace).ok_or_else(|| {
             vec![ParseError::new(
                 ParseErrorKind::UnexpectedEof,
@@ -282,10 +282,10 @@ impl Parser {
         })?;
 
         let return_expr = if matches!(
-            statements.last().map(|decl| decl.kind()),
+            decls.last().map(|decl| decl.kind()),
             Some(DeclKind::Stmt(stmt)) if matches!(stmt.kind(), StmtKind::Expr(_))
         ) {
-            let last = statements.pop().unwrap();
+            let last = decls.pop().unwrap();
             let DeclKind::Stmt(lst) = last.kind() else {
                 unreachable!();
             };
@@ -298,7 +298,7 @@ impl Parser {
             None
         };
 
-        let invalid_exprs: Vec<_> = statements
+        let invalid_exprs: Vec<_> = decls
             .iter()
             .filter(|stmt| matches!(stmt.kind(), DeclKind::Stmt(stmt) if matches!(stmt.kind(), StmtKind::Expr(_))))
             .map(|decl| match decl.kind() {
@@ -319,13 +319,7 @@ impl Parser {
             return Err(invalid_exprs);
         }
 
-        Ok(Expr::new(
-            ExprKind::Block {
-                decls: statements,
-                return_expr,
-            },
-            position,
-        ))
+        Ok(Block { decls, return_expr })
     }
 
     fn assignment(&mut self) -> Result<Expr, Vec<ParseError>> {
@@ -335,10 +329,7 @@ impl Parser {
         if matches_token!(self.peek(), TokenKind::Equal) {
             let _token = self.advance();
             let right = self.assignment()?;
-            Ok(Expr::new(
-                ExprKind::Assign(expr.into(), right.into()),
-                position,
-            ))
+            Ok(Expr::new(ExprKind::Assign(expr, right), position))
         } else {
             Ok(expr)
         }
@@ -352,7 +343,7 @@ impl Parser {
             let token = self.advance();
             let right = self.logical_and()?;
             expr = match token.kind() {
-                TokenKind::OrOr => Expr::new(ExprKind::Or(expr.into(), right.into()), position),
+                TokenKind::OrOr => Expr::new(ExprKind::Or(expr, right), position),
                 _ => unreachable!(),
             };
         }
@@ -368,7 +359,7 @@ impl Parser {
             let token = self.advance();
             let right = self.equality()?;
             expr = match token.kind() {
-                TokenKind::AndAnd => Expr::new(ExprKind::And(expr.into(), right.into()), position),
+                TokenKind::AndAnd => Expr::new(ExprKind::And(expr, right), position),
                 _ => unreachable!(),
             };
         }
@@ -384,12 +375,8 @@ impl Parser {
             let token = self.advance();
             let right = self.comparison()?;
             expr = match token.kind() {
-                TokenKind::EqualEqual => {
-                    Expr::new(ExprKind::Eq(expr.into(), right.into()), position)
-                }
-                TokenKind::BangEqual => {
-                    Expr::new(ExprKind::Ne(expr.into(), right.into()), position)
-                }
+                TokenKind::EqualEqual => Expr::new(ExprKind::Eq(expr, right), position),
+                TokenKind::BangEqual => Expr::new(ExprKind::Ne(expr, right), position),
                 _ => unreachable!(),
             };
         }
@@ -507,6 +494,7 @@ impl Parser {
             TokenKind::Keyword(keyword) => match keyword {
                 Keyword::True => ExprKind::Bool(true),
                 Keyword::False => ExprKind::Bool(false),
+                Keyword::If => *self.if_expr()?.kind,
                 _ => {
                     let err = ParseError::new(
                         ParseErrorKind::UnexpectedToken {
@@ -523,8 +511,7 @@ impl Parser {
             },
             TokenKind::LeftParen => {
                 let Expr { kind, .. } = self.parse_expr()?;
-                if matches_token!(self.peek(), TokenKind::RightParen) {
-                    self.advance();
+                if self.consume_token(TokenKind::RightParen).is_some() {
                     *kind
                 } else {
                     let err = ParseError::new(
@@ -556,6 +543,92 @@ impl Parser {
         };
 
         Ok(Expr::new(kind, position))
+    }
+
+    fn print_expr(&mut self) -> Result<Expr, Vec<ParseError>> {
+        let position = self.previous().unwrap().position();
+
+        let expr = self.parse_expr()?;
+
+        Ok(Expr::new(ExprKind::Print(expr), position))
+    }
+
+    fn if_expr(&mut self) -> Result<Expr, Vec<ParseError>> {
+        let position = self.previous().unwrap().position();
+
+        let cond = self.parse_expr()?;
+
+        if self.consume_token(TokenKind::LeftBrace).is_none() {
+            let err = ParseError::new(
+                ParseErrorKind::UnexpectedToken {
+                    token: self.previous().unwrap().clone(),
+                    expected: vec![TokenKind::LeftBrace],
+                },
+                position,
+            );
+            return Err(vec![err]);
+        }
+        let then_block = self.parse_block()?;
+
+        if self
+            .consume_token(TokenKind::Keyword(Keyword::Else))
+            .is_none()
+        {
+            return Ok(Expr::new(
+                ExprKind::If {
+                    cond,
+                    then_block,
+                    else_block: None,
+                },
+                position,
+            ));
+        }
+
+        if self
+            .consume_token(TokenKind::Keyword(Keyword::If))
+            .is_some()
+        {
+            // else if
+            let if_expr = self.if_expr()?;
+            let block = Block::new(
+                vec![Decl::new(
+                    DeclKind::Stmt(Stmt::new(StmtKind::Expr(if_expr), position)),
+                    position,
+                )],
+                None,
+            );
+
+            Ok(Expr::new(
+                ExprKind::If {
+                    cond,
+                    then_block,
+                    else_block: Some(block),
+                },
+                position,
+            ))
+        } else {
+            // else
+            if self.consume_token(TokenKind::LeftBrace).is_none() {
+                let err = ParseError::new(
+                    ParseErrorKind::UnexpectedToken {
+                        token: self.previous().unwrap().clone(),
+                        expected: vec![TokenKind::LeftBrace],
+                    },
+                    position,
+                );
+                return Err(vec![err]);
+            }
+
+            let else_block = self.parse_block()?;
+            Ok(Expr::new(
+                ExprKind::If {
+                    cond,
+                    then_block,
+                    else_block: Some(else_block),
+                },
+                position,
+            ))
+        }
     }
 
     // fn match_token(&mut self, kind: TokenKind) -> bool {

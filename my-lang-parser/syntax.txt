@@ -1,8 +1,8 @@
+decl = stmt | let_decl;
+let_decl = "let" IDENT "=" expression ";";
 
 statement = expr_stmt | let_stmt | for_stmt | while_stmt | return_stmt | print_stmt;
 expr_stmt = expression ";";
-let_stmt = "let" IDENT "=" expression ";";
-print_stmt = "print" expression ";";
 
 expr = num_expr;
 num_expr = assignment;
@@ -16,4 +16,6 @@ factor = unary (("*" | "/") unary)*;
 unary = ("!" | "-") unary | block;
 block = block_expr | primary;
 block_expr = "{" statement* expr? "}";
+call = print_expr | primary; // TODO: function call
+print_expr = "print" expression;
 primary = NUMBER | STRING | "true" | "false" | "(" expression ")" | IDENT;

@@ -65,6 +65,7 @@ pub enum StmtKind {
     Empty,
     /// 式
     Expr(Expr),
+    // While(Expr, Block),
     /// セミコロン付きの式
     SemiExpr(Expr),
 }
@@ -100,15 +101,15 @@ impl Expr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExprKind {
+    If {
+        cond: Expr,
+        then_block: Block,
+        else_block: Option<Block>,
+    },
     /// print
     Print(Expr),
 
-    Block {
-        /// ブロック内の文
-        decls: Vec<Decl>,
-        /// ブロックの最後の式
-        return_expr: Option<Expr>,
-    },
+    Block(Block),
 
     Number(f64),
     String(String),
@@ -135,6 +136,20 @@ pub enum ExprKind {
 impl ExprKind {
     pub fn maybe_no_semicolon(&self) -> bool {
         matches!(self, ExprKind::Block { .. })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Block {
+    /// ブロック内の文
+    pub decls: Vec<Decl>,
+    /// ブロックの最後の式
+    pub return_expr: Option<Expr>,
+}
+
+impl Block {
+    pub fn new(decls: Vec<Decl>, return_expr: Option<Expr>) -> Self {
+        Self { decls, return_expr }
     }
 }
 

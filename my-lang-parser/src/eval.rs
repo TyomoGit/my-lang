@@ -1,22 +1,22 @@
 use std::collections::HashMap;
 
 use crate::{
-    ast::{Decl, DeclKind, Expr, ExprKind, Stmt, StmtKind},
+    ast::{Block, Decl, DeclKind, Expr, ExprKind, Stmt, StmtKind},
     value::Value,
 };
 
 #[derive(Debug)]
-pub struct Evaluator<'a> {
-    environment: Environment<'a>,
+pub struct Evaluator {
+    environment: Environment,
 }
 
 #[derive(Debug)]
-pub struct Environment<'a> {
+pub struct Environment {
     variables: HashMap<String, Value>,
-    parent: Option<&'a mut Environment<'a>>,
+    parent: Option<Box<Environment>>,
 }
 
-impl<'a> Environment<'a> {
+impl Environment {
     pub fn new() -> Self {
         Self {
             variables: HashMap::new(),
@@ -24,15 +24,19 @@ impl<'a> Environment<'a> {
         }
     }
 
-    pub fn with_parent(parent: &'a mut Environment<'a>) -> Self {
+    pub fn with_parent(parent: Box<Environment>) -> Self {
         Self {
             variables: HashMap::new(),
             parent: Some(parent),
         }
     }
 
-    pub fn into_parent(self) -> Option<&'a mut Environment<'a>> {
+    pub fn into_parent(self) -> Option<Box<Environment>> {
         self.parent
+    }
+
+    pub fn has_parent(&self) -> bool {
+        self.parent.is_some()
     }
 
     pub fn get(&self, name: &str) -> Option<&Value> {
@@ -50,13 +54,13 @@ impl<'a> Environment<'a> {
     }
 }
 
-impl<'a> Default for Environment<'a> {
+impl Default for Environment {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<'a> Evaluator<'a> {
+impl Evaluator {
     pub fn new() -> Self {
         Self {
             environment: Environment::new(),
@@ -84,9 +88,7 @@ impl<'a> Evaluator<'a> {
     fn eval_stmt(&mut self, stmt: &Stmt) -> Value {
         match stmt.kind() {
             StmtKind::Empty => Value::Void,
-            StmtKind::Expr(expr) => {
-                unreachable!("unreachable expr: {:?} in eval_stmt", expr)
-            }
+            StmtKind::Expr(expr) => self.eval_expr(expr),
             StmtKind::SemiExpr(expr) => {
                 let _ = self.eval_expr(expr);
                 Value::Void
@@ -94,35 +96,99 @@ impl<'a> Evaluator<'a> {
         }
     }
 
+    fn eval_block(&mut self, block: &Block) -> Value {
+        self.enter_scope();
+        for decl in &block.decls {
+            self.eval_decl(decl);
+        }
+
+        let value = if let Some(return_expr) = &block.return_expr {
+            self.eval_expr(return_expr)
+        } else {
+            Value::Void
+        };
+
+        self.exit_scope();
+        value
+    }
+
+    fn enter_scope(&mut self) {
+        let old_environment = std::mem::take(&mut self.environment);
+        self.environment = Environment::with_parent(old_environment.into());
+    }
+
+    fn exit_scope(&mut self) {
+        if !self.environment.has_parent() {
+            return;
+        }
+
+        let old_environment = std::mem::take(&mut self.environment);
+        let Some(parent) = old_environment.into_parent() else {
+            unreachable!("parent is None");
+        };
+        self.environment = *parent;
+    }
+
     #[allow(clippy::only_used_in_recursion)]
     fn eval_expr(&mut self, expr: &Expr) -> Value {
         macro_rules! impl_binary_op {
             ($lhs:ident, $rhs:ident, $op:tt, $type:tt) => {
                 {
-                    let Value::$type(lhs) = self.eval_expr(&$lhs) else {
-                        panic!(concat!("expected ", stringify!($type), ", got: {:?}"), $lhs)
-                    };
-                    let Value::$type(rhs) = self.eval_expr(&$rhs) else {
-                        panic!(concat!("expected ", stringify!($type), ", got: {:?}"), $rhs)
-                    };
-                    Value::$type(lhs $op rhs)
+                    let lhs = self.eval_expr($lhs);
+                    let rhs = self.eval_expr($rhs);
+
+                    let result = lhs $op rhs;
+                    result
+                }
+            };
+        }
+        macro_rules! impl_binary_op_bool {
+            ($lhs:ident, $rhs:ident, $op:tt, $type:tt) => {
+                {
+                    let lhs = self.eval_expr($lhs);
+                    let rhs = self.eval_expr($rhs);
+                    Value::Bool(lhs $op rhs)
                 }
             };
         }
 
-        match expr.kind() {
-            ExprKind::Number(number) => Value::Number(*number),
-            ExprKind::String(string) => Value::String(string.to_string()),
-            ExprKind::Block { decls, return_expr } => {
-                for decl in decls {
-                    self.eval_decl(decl);
+        macro_rules! impl_logical_op {
+            ($lhs:ident, $rhs:ident, $op:tt, $type:tt) => {
+                {
+                    let Value::Bool(lhs) = self.eval_expr($lhs) else {
+                        panic!("expected bool, got: {:?}", $lhs)
+                    };
+                    let Value::Bool(rhs) = self.eval_expr($rhs) else {
+                        panic!("expected bool, got: {:?}", $rhs)
+                    };
+                    Value::Bool(lhs $op rhs)
                 }
-                if let Some(return_expr) = return_expr {
-                    self.eval_expr(&return_expr)
+            };
+        }
+
+
+
+        match expr.kind() {
+            ExprKind::If {
+                cond,
+                then_block,
+                else_block,
+            } => {
+                let Value::Bool(cond) = self.eval_expr(cond) else {
+                    panic!("expected bool, got: {:?}", cond)
+                };
+
+                if cond {
+                    self.eval_block(then_block)
+                } else if let Some(else_block) = else_block {
+                    self.eval_block(else_block)
                 } else {
                     Value::Void
                 }
             }
+            ExprKind::Number(number) => Value::Number(*number),
+            ExprKind::String(string) => Value::String(string.to_string()),
+            ExprKind::Block(block) => self.eval_block(block),
             ExprKind::Ident(ident) => {
                 let ident = &ident.name;
                 if let Some(value) = self.environment.get(ident) {
@@ -133,7 +199,7 @@ impl<'a> Evaluator<'a> {
             }
             ExprKind::Bool(bool) => Value::Bool(*bool),
             ExprKind::Minus(expr) => {
-                let Value::Number(number) = self.eval_expr(&expr) else {
+                let Value::Number(number) = self.eval_expr(expr) else {
                     panic!("expected number, got: {:?}", expr)
                 };
                 Value::Number(-number)
@@ -165,14 +231,14 @@ impl<'a> Evaluator<'a> {
             }
             ExprKind::Mul(lhs, rhs) => impl_binary_op!(lhs, rhs, *, Number),
             ExprKind::Div(lhs, rhs) => impl_binary_op!(lhs, rhs, /, Number),
-            ExprKind::Eq(lhs, rhs) => impl_binary_op!(lhs, rhs, ==, Bool),
-            ExprKind::Ne(lhs, rhs) => impl_binary_op!(lhs, rhs, !=, Bool),
-            ExprKind::Gt(lhs, rhs) => impl_binary_op!(lhs, rhs, >, Bool),
-            ExprKind::Ge(lhs, rhs) => impl_binary_op!(lhs, rhs, >=, Bool),
-            ExprKind::Lt(lhs, rhs) => impl_binary_op!(lhs, rhs, <, Bool),
-            ExprKind::Le(lhs, rhs) => impl_binary_op!(lhs, rhs, <=, Bool),
-            ExprKind::And(lhs, rhs) => impl_binary_op!(lhs, rhs, &&, Bool),
-            ExprKind::Or(lhs, rhs) => impl_binary_op!(lhs, rhs, ||, Bool),
+            ExprKind::Eq(lhs, rhs) => impl_binary_op_bool!(lhs, rhs, ==, Bool),
+            ExprKind::Ne(lhs, rhs) => impl_binary_op_bool!(lhs, rhs, !=, Bool),
+            ExprKind::Gt(lhs, rhs) => impl_binary_op_bool!(lhs, rhs, >, Bool),
+            ExprKind::Ge(lhs, rhs) => impl_binary_op_bool!(lhs, rhs, >=, Bool),
+            ExprKind::Lt(lhs, rhs) => impl_binary_op_bool!(lhs, rhs, <, Bool),
+            ExprKind::Le(lhs, rhs) => impl_binary_op_bool!(lhs, rhs, <=, Bool),
+            ExprKind::And(lhs, rhs) => impl_logical_op!(lhs, rhs, &&, Bool),
+            ExprKind::Or(lhs, rhs) => impl_logical_op!(lhs, rhs, ||, Bool),
 
             ExprKind::Print(expr) => {
                 let value = self.eval_expr(expr);
@@ -183,7 +249,7 @@ impl<'a> Evaluator<'a> {
     }
 }
 
-impl<'a> Default for Evaluator<'a> {
+impl Default for Evaluator {
     fn default() -> Self {
         Self::new()
     }

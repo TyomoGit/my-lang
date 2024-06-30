@@ -5,11 +5,11 @@ use inkwell::{
     context::Context,
     module::Module,
     values::{BasicValue, BasicValueEnum},
-    AddressSpace,
+    AddressSpace, IntPredicate,
 };
-use my_lang_parser::ast::Expr;
+use my_lang_parser::ast::ExprKind;
 
-pub type Program = Expr;
+pub type Program = ExprKind;
 
 #[derive(Debug, Clone)]
 pub enum CompileError {}
@@ -73,49 +73,83 @@ impl<'ctx> Compiler<'ctx> {
             .unwrap();
     }
 
-    fn compile_expr(&self, expr: &Expr) -> Result<BasicValueEnum, CompileError> {
+    fn compile_expr(&self, expr: &ExprKind) -> Result<BasicValueEnum, CompileError> {
+        macro_rules! impl_binary_op_float {
+            ($lhs:ident, $rhs:ident, $method:ident) => {{
+                let BasicValueEnum::FloatValue($lhs) = self.compile_expr($lhs)? else {
+                    panic!("expected float value");
+                };
+                let BasicValueEnum::FloatValue($rhs) = self.compile_expr($rhs)? else {
+                    panic!("expected float value");
+                };
+                let value = self.builder.$method($lhs, $rhs, "bin_op").unwrap();
+                BasicValueEnum::FloatValue(value)
+            }};
+        }
+
+        macro_rules! impl_binary_op_cmp {
+            ( $lhs:ident, $rhs:ident, $predicate:ident) => {{
+                let BasicValueEnum::IntValue($lhs) = self.compile_expr($lhs)? else {
+                    panic!("expected int value");
+                };
+                let BasicValueEnum::IntValue($rhs) = self.compile_expr($rhs)? else {
+                    panic!("expected int value");
+                };
+                let value = self
+                    .builder
+                    .build_int_compare(IntPredicate::$predicate, $lhs, $rhs, "bin_op_int")
+                    .unwrap();
+                BasicValueEnum::IntValue(value)
+            }};
+        }
+
         let value = match expr {
-            Expr::Number(number) => self
+            ExprKind::Block(statements) => {
+                todo!()
+            }
+            ExprKind::Number(number) => self
                 .context
                 .f64_type()
                 .const_float(*number)
                 .as_basic_value_enum(),
-            Expr::String(_) => todo!(),
-            Expr::Ident(_) => todo!(),
-            Expr::Bool(bool) => self
+            ExprKind::String(_) => todo!(),
+            ExprKind::Ident(_) => todo!(),
+            ExprKind::Bool(bool) => self
                 .context
                 .bool_type()
                 .const_int(*bool as u64, false)
                 .as_basic_value_enum(),
-            Expr::Minus(number) => {
+            ExprKind::Minus(number) => {
                 let BasicValueEnum::FloatValue(value) = self.compile_expr(number)? else {
                     panic!("expected float value");
                 };
                 let value = self.builder.build_float_neg(value, "neg").unwrap();
                 BasicValueEnum::FloatValue(value)
             }
-            Expr::Assign(_, _) => todo!(),
-            Expr::Add(lhs, rhs) => {
+            ExprKind::Assign(_, _) => todo!(),
+            ExprKind::Add(lhs, rhs) => {
                 let BasicValueEnum::FloatValue(lhs) = self.compile_expr(lhs)? else {
                     panic!("expected float value");
                 };
                 let BasicValueEnum::FloatValue(rhs) = self.compile_expr(rhs)? else {
                     panic!("expected float value");
                 };
+                // TODO: string concat
+
                 let value = self.builder.build_float_add(lhs, rhs, "add").unwrap();
                 BasicValueEnum::FloatValue(value)
             }
-            Expr::Sub(_, _) => todo!(),
-            Expr::Mul(_, _) => todo!(),
-            Expr::Div(_, _) => todo!(),
-            Expr::Eq(_, _) => todo!(),
-            Expr::Ne(_, _) => todo!(),
-            Expr::Gt(_, _) => todo!(),
-            Expr::Ge(_, _) => todo!(),
-            Expr::Lt(_, _) => todo!(),
-            Expr::Le(_, _) => todo!(),
-            Expr::And(_, _) => todo!(),
-            Expr::Or(_, _) => todo!(),
+            ExprKind::Sub(lhs, rhs) => impl_binary_op_float!(lhs, rhs, build_float_sub),
+            ExprKind::Mul(lhs, rhs) => impl_binary_op_float!(lhs, rhs, build_float_mul),
+            ExprKind::Div(lhs, rhs) => impl_binary_op_float!(lhs, rhs, build_float_div),
+            ExprKind::Eq(lhs, rhs) => impl_binary_op_cmp!(lhs, rhs, EQ),
+            ExprKind::Ne(lhs, rhs) => impl_binary_op_cmp!(lhs, rhs, NE),
+            ExprKind::Gt(lhs, rhs) => impl_binary_op_cmp!(lhs, rhs, UGT),
+            ExprKind::Ge(lhs, rhs) => impl_binary_op_cmp!(lhs, rhs, UGE),
+            ExprKind::Lt(lhs, rhs) => impl_binary_op_cmp!(lhs, rhs, ULT),
+            ExprKind::Le(lhs, rhs) => impl_binary_op_cmp!(lhs, rhs, ULE),
+            ExprKind::And(_, _) => todo!(),
+            ExprKind::Or(_, _) => todo!(),
         };
         Ok(value)
     }

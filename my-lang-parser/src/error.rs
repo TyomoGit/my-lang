@@ -1,17 +1,26 @@
-use std::{collections::BTreeMap, fmt::Write, path::Path, str::Lines};
+use std::{
+    collections::BTreeMap,
+    fmt::{Display, Write},
+    path::Path,
+    str::Lines,
+};
 
 #[derive(Debug, Clone)]
 pub enum ErrorKind {
-    ScanError,
-    ParseError,
-    RunTimeError,
+    Scan,
+    Parse,
+    RunTime,
 }
 
-pub trait Error: std::error::Error + Send + Sync + 'static {
+impl Display for ErrorKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+pub trait Error: std::error::Error {
     fn position(&self) -> Position;
-    fn kind() -> ErrorKind
-    where
-        Self: Sized;
+    fn kind() -> ErrorKind;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,13 +59,13 @@ pub fn fmt_errors<T: Error>(
     result
 }
 
-fn error_details(error: &dyn Error, file_path: Option<&Path>) -> String {
+fn error_details<E: Error>(error: &E, file_path: Option<&Path>) -> String {
     let Position { row, column } = error.position();
     let (row, column) = (row.to_string(), column.to_string());
     let file_path =
         file_path.map_or_else(|| "<repl>".to_string(), |path| path.display().to_string());
     let mut result = String::new();
-    writeln!(&mut result, "[🛑 Error] {}", error).unwrap();
+    writeln!(&mut result, "[🛑 {}Error] {}", E::kind(), error).unwrap();
     write!(&mut result, "  --> {}:{}:{}", file_path, row, column).unwrap();
 
     result

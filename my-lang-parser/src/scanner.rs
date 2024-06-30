@@ -25,7 +25,7 @@ impl Error for ScanError {
     }
 
     fn kind() -> crate::error::ErrorKind {
-        ErrorKind::ScanError
+        ErrorKind::Scan
     }
 }
 
